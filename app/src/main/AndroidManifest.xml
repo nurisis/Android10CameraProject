@@ -21,7 +21,7 @@
             </intent-filter>
         </activity>
 
-        <!--        ====== File provider ====-->
+        <!-- ====== File Provider ======= -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.provider"

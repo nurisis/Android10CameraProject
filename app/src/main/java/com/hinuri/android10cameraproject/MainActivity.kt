@@ -4,17 +4,17 @@ import android.Manifest
 import android.content.ContentValues
 import android.content.Intent
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
+import android.media.ExifInterface
 import android.net.Uri
 import android.os.Build
-import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
+import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
 import com.bumptech.glide.Glide
-import com.gun0912.tedpermission.BuildConfig
+import com.bumptech.glide.request.FutureTarget
 import com.gun0912.tedpermission.PermissionListener
 import com.gun0912.tedpermission.TedPermission
 import kotlinx.android.synthetic.main.activity_main.*
@@ -26,7 +26,8 @@ import java.util.*
 class MainActivity : AppCompatActivity() {
 
     // 촬영한 이미지를 담는 이미지파일
-    var imageFile: File? = null
+    private var imageFile: File? = null
+    private var imageUri:Uri? = null
     private val takePhoto = 111
     private val takeGallery = 222
 
@@ -47,7 +48,7 @@ class MainActivity : AppCompatActivity() {
 
                     imageFile = createImageFile()
 
-                    val photoURI: Uri =
+                    imageUri =
                         if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.N)
                             FileProvider.getUriForFile(
                                 this,
@@ -56,7 +57,7 @@ class MainActivity : AppCompatActivity() {
                         else
                             Uri.fromFile(imageFile)
 
-                    takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoURI)
+                    takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, imageUri)
                     startActivityForResult(takePictureIntent, takePhoto)
 
                 }catch (e:IOException) {
@@ -87,9 +88,24 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    val uri = savePhotoQ(BitmapFactory.decodeFile(imageFile!!.absolutePath))
-                    Log.d("LOG>>", "카메라 촬영 후 url : $uri")
-                    Glide.with(this).load(uri).into(iv_image)
+                    Thread(Runnable {
+                        // 설명 : http://bumptech.github.io/glide/doc/getting-started.html#background-threads
+                        val futureTarget: FutureTarget<Bitmap> = Glide.with(this)
+                            .asBitmap()
+                            .load(imageFile)
+                            .submit()
+
+                        val bitmap: Bitmap = futureTarget.get()
+                        val uri = savePhotoAndroidQ(bitmap)
+                        // TODO :: 기존 파일 지워야지.
+                        Log.d("LOG>>", "카메라 촬영 후 uri : $uri")
+
+//                        runOnUiThread {
+//                            Glide.with(this).load(uri).into(iv_image)
+//                        }
+                    }).start()
+
+                    Glide.with(this).load(imageFile).into(iv_image)
                 }
                 else
                     notifyGallery(imageFile!!)
@@ -102,47 +118,55 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    @Throws(IOException::class)
-    private fun savePhotoQ(bitmap: Bitmap) : Uri? {
-        val relativePath = Environment.DIRECTORY_PICTURES + File.separator + (getString(R.string.app_name))
-        val fileName = SimpleDateFormat("YYYY_MM_dd_HH:mm:ss").format(Date())+".jpg"
-        val mimeType = "image/*"
+    private fun savePhotoAndroidQ(bitmap: Bitmap) : Uri? {
+        try {
+            val relativePath = Environment.DIRECTORY_PICTURES + File.separator + "Android10CameraProject"
+            val mimeType = "image/*"
+            val fileName = SimpleDateFormat("YYYY_MM_dd_HH:mm:ss").format(Date())+".jpg"
 
-        val values = ContentValues().apply {
-            put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
-            put(MediaStore.Images.Media.MIME_TYPE, mimeType)
-            put(MediaStore.Images.Media.IS_PENDING, 1)
-            put(MediaStore.Images.Media.RELATIVE_PATH, relativePath)
-        }
+            val values = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+                put(MediaStore.Images.Media.MIME_TYPE, mimeType)
+                put(MediaStore.Images.Media.IS_PENDING, 1)
+                put(MediaStore.Images.Media.RELATIVE_PATH, relativePath)
+            }
 
-        val resolver = contentResolver ?: return null
+            val resolver = contentResolver ?: return null
 
-        val collection = MediaStore.Images.Media
-            .getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-        val item = resolver.insert(collection, values)
+            val collection = MediaStore.Images.Media
+                .getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            val uri = resolver.insert(collection, values)
 
-        if(item == null) {
-            Log.e("LOG>>","Failed to create new  MediaStore record.")
+            if(uri == null) {
+                Log.e("LOG>>","Failed to create new  MediaStore record.")
+                return null
+            }
+
+            val outputStream = resolver.openOutputStream(uri)
+
+            if(outputStream == null) {
+                Log.e("LOG>>", "Failed to get output stream.")
+            }
+
+            val saved = bitmap.compress(Bitmap.CompressFormat.JPEG, 90, outputStream)
+            if(!saved) {
+                Log.e("LOG>>","파일을 앨범에 저장하는데 실패 ..했 ....")
+            }
+
+            values.clear()
+            values.put(MediaStore.Images.Media.IS_PENDING, 0)
+            resolver.update(uri, values, null, null)
+
+            return uri
+        } catch (e:Exception) {
+            Log.e("LOG>>", "error : $e")
             return null
         }
-
-        var outputStream = resolver!!.openOutputStream(item)
-
-        if(outputStream == null)
-            Log.e("LOG>>","Failed to get output stream.")
-
-        val saved = bitmap.compress(Bitmap.CompressFormat.JPEG, 90, outputStream)
-        if(!saved)
-            Log.e("LOG>>","파일을 저장하는데 실패 ..했 ....")
-
-        values.clear()
-        values.put(MediaStore.Images.Media.IS_PENDING, 0)
-        resolver.update(item, values, null, null)
-
-        Log.d("LOG>>", "[Q]사진 촬영 후 uri : $item")
-
-        return item
     }
+
+//    private fun getBitmapFromImageFile(imageFile: File) : Bitmap {
+//
+//    }
 
     @Throws(IOException::class)
     private fun createImageFile() : File {
@@ -150,6 +174,7 @@ class MainActivity : AppCompatActivity() {
         if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q){
             // 이미지가 저장될 디렉토리
             val storageDir: File? = getExternalFilesDir(Environment.DIRECTORY_PICTURES)
+            Log.d("LOG>>", "storageDir : $storageDir")
             // 이미지를 담을 파일 생성
             return File.createTempFile(
                 SimpleDateFormat("yyMMdd_HH:mm:ss").format(Date()), /* prefix */
