@@ -1,16 +1,18 @@
 package com.hinuri.android10cameraproject
 
 import android.Manifest
+import android.content.ContentResolver
 import android.content.ContentValues
 import android.content.Intent
 import android.graphics.Bitmap
-import android.media.ExifInterface
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
+import android.provider.OpenableColumns
 import android.util.Log
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
 import com.bumptech.glide.Glide
@@ -19,6 +21,8 @@ import com.gun0912.tedpermission.PermissionListener
 import com.gun0912.tedpermission.TedPermission
 import kotlinx.android.synthetic.main.activity_main.*
 import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.*
@@ -36,7 +40,12 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         tv_cta_camera.setOnClickListener { checkCameraPermission(ImageType.CAMERA) }
-        tv_cta_gallery.setOnClickListener { checkCameraPermission(ImageType.GALLERY) }
+        tv_cta_gallery.setOnClickListener {
+            if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+                callGallery()
+            else
+                checkCameraPermission(ImageType.GALLERY)
+        }
     }
 
     private fun callCamera() {
@@ -73,7 +82,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun callGallery() {
-
+        val intent = Intent()
+        intent.type = "image/*"
+        intent.action = Intent.ACTION_GET_CONTENT
+        startActivityForResult(intent, takeGallery)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -95,14 +107,14 @@ class MainActivity : AppCompatActivity() {
                             .load(imageFile)
                             .submit()
 
-                        val bitmap: Bitmap = futureTarget.get()
-                        val uri = savePhotoAndroidQ(bitmap)
-                        // TODO :: 기존 파일 지워야지.
-                        Log.d("LOG>>", "카메라 촬영 후 uri : $uri")
+                        if(savePhotoAndroidQ(futureTarget.get()) == null)
+                            runOnUiThread {
+                                Toast.makeText(this, "Failed to save image in gallery ...", Toast.LENGTH_SHORT).show()
+                            }
 
-//                        runOnUiThread {
-//                            Glide.with(this).load(uri).into(iv_image)
-//                        }
+                        // 기존 파일 지움
+                        deleteImages(imageFile!!)
+
                     }).start()
 
                     Glide.with(this).load(imageFile).into(iv_image)
@@ -113,14 +125,16 @@ class MainActivity : AppCompatActivity() {
             }
             // 갤러리에서 이미지 선택 후
             takeGallery -> {
-
+                val file = createImageFileAndroidQ(uri = data?.data!!)
+                Log.d("LOG>>", "갤러리에서 => ${data?.data}, file : $file")
+                Glide.with(this).load(file).into(iv_image)
             }
         }
     }
 
     private fun savePhotoAndroidQ(bitmap: Bitmap) : Uri? {
         try {
-            val relativePath = Environment.DIRECTORY_PICTURES + File.separator + "Android10CameraProject"
+            val relativePath = Environment.DIRECTORY_PICTURES + File.separator + getString(R.string.app_name)
             val mimeType = "image/*"
             val fileName = SimpleDateFormat("YYYY_MM_dd_HH:mm:ss").format(Date())+".jpg"
 
@@ -164,9 +178,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-//    private fun getBitmapFromImageFile(imageFile: File) : Bitmap {
-//
-//    }
 
     @Throws(IOException::class)
     private fun createImageFile() : File {
@@ -204,6 +215,45 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // 서버에 이미지를 올리기 위해 저장했던 (앱 용 private directory에 저장된) 이미지들 삭제
+    private fun deleteImages(file:File) {
+        try{
+            file.delete()
+        }catch (e:Exception){
+            Log.e("LOG>>", "error while deleting image : $e")
+        }
+    }
+
+    private fun createImageFileAndroidQ(uri:Uri): File?{
+        return try {
+            val parcelFileDescriptor = contentResolver.openFileDescriptor(uri, "r", null)
+            val inputStream = FileInputStream(parcelFileDescriptor?.fileDescriptor)
+
+            val file = File(cacheDir, contentResolver.getFileName(uri))
+
+            val outputStream = FileOutputStream(file)
+
+            inputStream.copyTo(outputStream)
+
+            file
+        }catch (e:Exception) {
+            Log.e("LOG>>","createImageFileAndroidQ ERror : $e")
+            null
+        }
+    }
+
+    private fun ContentResolver.getFileName(fileUri: Uri): String {
+        var name = ""
+        val returnCursor = this.query(fileUri, null, null, null, null)
+        if (returnCursor != null) {
+            val nameIndex = returnCursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            returnCursor.moveToFirst()
+            name = returnCursor.getString(nameIndex)
+            returnCursor.close()
+        }
+
+        return name
+    }
 
     private fun checkCameraPermission(type:ImageType) {
         TedPermission.with(this)
