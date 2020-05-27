@@ -1,17 +1,13 @@
 package com.hinuri.android10cameraproject
 
 import android.Manifest
-import android.app.Application
-import android.content.ContentResolver
-import android.content.ContentValues
+import android.app.Activity
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Environment
 import android.provider.MediaStore
-import android.provider.OpenableColumns
 import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -23,19 +19,14 @@ import com.gun0912.tedpermission.PermissionListener
 import com.gun0912.tedpermission.TedPermission
 import kotlinx.android.synthetic.main.activity_main.*
 import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
 import java.io.IOException
-import java.text.SimpleDateFormat
-import java.util.*
 
 class MainActivity : AppCompatActivity() {
-
     private lateinit var viewModel: CameraViewModel
 
-    // 촬영한 이미지를 담는 이미지파일
+    // file that store a captured image from camera
     private var imageFile: File? = null
-    private var imageUri:Uri? = null
+
     private val takePhoto = 111
     private val takeGallery = 222
 
@@ -43,11 +34,12 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // Create viewmodel
-        val factory = CameraViewModelFactory(application)
-        viewModel = ViewModelProvider(viewModelStore, factory).get(CameraViewModel::class.java)
+        // create a viewmodel
+        viewModel = ViewModelProvider(viewModelStore, CameraViewModelFactory(application)).get(CameraViewModel::class.java)
 
-        tv_cta_camera.setOnClickListener { checkCameraPermission(ImageType.CAMERA) }
+        tv_cta_camera.setOnClickListener {
+            checkCameraPermission(ImageType.CAMERA)
+        }
         tv_cta_gallery.setOnClickListener {
             if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
                 callGallery()
@@ -60,12 +52,12 @@ class MainActivity : AppCompatActivity() {
         Intent(MediaStore.ACTION_IMAGE_CAPTURE).also { takePictureIntent ->
             // Ensure that there's a camera activity to handle the intent
             takePictureIntent.resolveActivity(packageManager)?.also {
-                // 이미지 파일이 존재할 경우에만 카메라앱 실행
+                // Launch camera app only when image file exists
                 try {
-
+                    // create a file to contain photos to be taken with the camera
                     imageFile = viewModel.createImageFile()
 
-                    imageUri =
+                    val imageUri =
                         if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.N)
                             FileProvider.getUriForFile(
                                 this,
@@ -74,8 +66,7 @@ class MainActivity : AppCompatActivity() {
                         else
                             Uri.fromFile(imageFile)
 
-                    Log.d("LOG>>", "imageUri : $imageUri")
-
+                    // launch camera app
                     takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, imageUri)
                     startActivityForResult(takePictureIntent, takePhoto)
 
@@ -102,10 +93,13 @@ class MainActivity : AppCompatActivity() {
         super.onActivityResult(requestCode, resultCode, data)
 
         when(requestCode) {
-            // 카메라 촬영 후
+            // After taking a picture
             takePhoto -> {
                 if(imageFile == null) {
-                    Log.e("LOG>>", "카메라 촬영 후 imageFile null. ....")
+                    Log.e("LOG>>", "After taking a picture, imageFile null. ....")
+                    return
+                }
+                if(resultCode != Activity.RESULT_OK) {
                     return
                 }
 
@@ -113,53 +107,62 @@ class MainActivity : AppCompatActivity() {
 
                 if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     Thread(Runnable {
-                        // 설명 : http://bumptech.github.io/glide/doc/getting-started.html#background-threads
+                        // convert image file to bitmap using Glide
+                        // description : http://bumptech.github.io/glide/doc/getting-started.html#background-threads
                         val futureTarget: FutureTarget<Bitmap> = Glide.with(this)
                             .asBitmap()
                             .load(imageFile)
                             .submit()
 
+                        // save bitmap to gallery
                         if(viewModel.savePhotoAndroidQ(futureTarget.get()) == null)
                             runOnUiThread {
                                 Toast.makeText(this, "Failed to save image in gallery ...", Toast.LENGTH_SHORT).show()
                             }
 
-                        // 기존 파일 지움
+                        // delete a temporary file stored in the internal storage
                         viewModel.deleteImages(imageFile!!)
 
                     }).start()
                 }
                 else
+                    // Notice that images have been added to the gallery
                     viewModel.notifyGallery(imageFile!!)
 
             }
-            // 갤러리에서 이미지 선택 후
+            // After selecting an image from gallery.
             takeGallery -> {
-                val file = viewModel.createImageFileAndroidQ(uri = data?.data!!)
-                Log.d("LOG>>", "갤러리에서 => ${data?.data}, file : $file")
-                Glide.with(this).load(file).into(iv_image)
+                if(resultCode == Activity.RESULT_OK) {
+                    // convert uri of user selected image to file
+                    val file = viewModel.createImageFileAndroidQ(uri = data?.data!!)
+                    Glide.with(this).load(file).into(iv_image)
+                }
             }
         }
     }
 
+    /**
+     * Permission check. Use TedPermission library.
+     * */
     private fun checkCameraPermission(type:ImageType) {
         TedPermission.with(this)
             .setPermissionListener(object : PermissionListener {
-                // 권한 허용 시
+                // Allow permissions
                 override fun onPermissionGranted() {
                     when(type) {
                         ImageType.CAMERA -> callCamera()
                         ImageType.GALLERY -> callGallery()
                     }
                 }
-                // 권한 거부..
+                // Deny permissions
                 override fun onPermissionDenied(deniedPermissions: MutableList<String>?) {
                 }
             })
-            .setDeniedMessage("거절하시면 이미지를 올리실 수 없어요 \uD83D\uDE2D\uD83D\uDE2D")
+            .setDeniedMessage("Please allow permissions to use this app. \uD83D\uDE2D\uD83D\uDE2D")
             .apply {
                 when(type){
                     ImageType.CAMERA -> {
+                        // No storage permission required for accessing scoped storage from Android 10+
                         if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
                             setPermissions(Manifest.permission.CAMERA)
                         else

@@ -31,6 +31,11 @@ class CameraViewModel(
     private val myApplication: Application
 ) :AndroidViewModel(myApplication) {
 
+    /**
+     * Save the bitmap file to user's gallery on Android 10+
+     * @param bitmap
+     * @return Uri
+     * */
     fun savePhotoAndroidQ(bitmap: Bitmap) : Uri? {
         try {
             val relativePath = Environment.DIRECTORY_PICTURES + File.separator + myApplication.getString(R.string.app_name)
@@ -63,7 +68,7 @@ class CameraViewModel(
 
             val saved = bitmap.compress(Bitmap.CompressFormat.JPEG, 90, outputStream)
             if(!saved) {
-                Log.e("LOG>>","파일을 앨범에 저장하는데 실패 ..했 ....")
+                Log.e("LOG>>","Fail to save photo to gallery")
             }
 
             values.clear()
@@ -77,6 +82,9 @@ class CameraViewModel(
         }
     }
 
+    /**
+     * Create an image file using uri on Android 10+
+     * */
     fun createImageFileAndroidQ(uri:Uri): File?{
         return try {
             val parcelFileDescriptor = myApplication.contentResolver.openFileDescriptor(uri, "r", null)
@@ -96,19 +104,16 @@ class CameraViewModel(
 
     @Throws(IOException::class)
     fun createImageFile() : File {
-        // api 29부터는, MediaStore로 파일을 저장해야하므로, 여기서는 일단 앱 내 저장소에서 파일을 만듬.
+        // Since Android 10 and above, you need to store the file in MediaStore, so here we create the file in the in-app storage
         if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q){
-            // 이미지가 저장될 디렉토리
             val storageDir: File? = myApplication.getExternalFilesDir(Environment.DIRECTORY_PICTURES)
-            Log.d("LOG>>", "storageDir : $storageDir")
-            // 이미지를 담을 파일 생성
             return File.createTempFile(
                 SimpleDateFormat("yyMMdd_HH:mm:ss").format(Date()), /* prefix */
                 ".jpeg", /* suffix */
                 storageDir /* directory */
             )
         }
-        // api 28 이하의 경우, 바로 디바이스 앨범에 이미지를 담을 파일을 생성함
+        // In case of Android 9(Q) or lower, it creates a file to contain the image in the device album immediately
         else {
             val storageDir = File(
                 Environment.getExternalStoragePublicDirectory(
@@ -117,22 +122,21 @@ class CameraViewModel(
                 , myApplication.getString(R.string.app_name)
             )
 
-            // 해당 폴더가 없으면 생성
             if(!storageDir.exists())
                 storageDir.mkdir()
 
-            // 이미지를 담을 파일 생성
             return File.createTempFile(
                 SimpleDateFormat("yyMMdd_HH:mm:ss").format(Date()), /* prefix */
                 ".jpeg", /* suffix */
                 storageDir /* directory */
-            ).also { Log.d("LOG>>","10 이하 파일생성 : $it") }
+            )
         }
     }
 
 
     /**
-     * 앨범에 새로운 사진이 추가되었다고 알림.
+     * Notice that images have been added to the gallery
+     * @param imageFile
      * */
     fun notifyGallery(imageFile:File) {
         myApplication.sendBroadcast(
@@ -143,7 +147,6 @@ class CameraViewModel(
         )
     }
 
-    // 서버에 이미지를 올리기 위해 저장했던 (앱 용 private directory에 저장된) 이미지들 삭제
     fun deleteImages(file:File) {
         try{
             file.delete()
