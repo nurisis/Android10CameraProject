@@ -7,3 +7,9 @@ A sample android app for loading images from cameras and galleries that support 
 - Loading images from the gallery
 - Convert images imported from the gallery to files
 - Deal with Android 10 
+
+
+## Features and differences of media permission request in Android 10+
+<img width="878" alt="android_10_permission_공식문서" src="https://user-images.githubusercontent.com/24906264/83010752-b6edf800-a053-11ea-98c8-8e159612b77a.png">
+
+<img width="899" alt="android_권한요청_공식표" src="https://user-images.githubusercontent.com/24906264/83010738-b05f8080-a053-11ea-9574-215e7612f24e.png">
