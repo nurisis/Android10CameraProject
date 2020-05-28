@@ -10,6 +10,8 @@ A sample android app for loading images from cameras and galleries that support 
 
 
 ## Features and differences of media permission request in Android 10+
+[Privacy changes in Android 10](https://developer.android.com/about/versions/10/privacy/changes#scoped-storage)
+
 ### Changes in Android 10
 ![Android10](https://user-images.githubusercontent.com/24906264/83010752-b6edf800-a053-11ea-98c8-8e159612b77a.png)
 
